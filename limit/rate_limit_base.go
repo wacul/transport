@@ -22,13 +22,23 @@ type channelStarter func(chan struct{}) *priorityChannel
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups
 type RateLimit struct {
-	Transport      http.RoundTripper
-	GroupKeyFunc   func(r *http.Request) string
-	channelStarter channelStarter
-	closeCh        chan struct{}
-	channelMap     map[string]*priorityChannel
-	ml             *sync.Mutex
-	initOnce       sync.Once
+	Transport          http.RoundTripper
+	GroupKeyFunc       func(r *http.Request) string
+	PriorityHeaderName string
+	channelStarter     channelStarter
+	closeCh            chan struct{}
+	channelMap         map[string]*priorityChannel
+	ml                 *sync.Mutex
+	initOnce           sync.Once
+}
+
+const DefaultPriorityHeaderName = "X-Ratelimit-Priority"
+
+func (t *RateLimit) priorityHeader() string {
+	if t.PriorityHeaderName == "" {
+		return DefaultPriorityHeaderName
+	}
+	return t.PriorityHeaderName
 }
 
 func (t *RateLimit) init() {
@@ -80,7 +90,7 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 		resCh: resCh,
 	}
 	select {
-	case channelForRequest(reqCh, req) <- mreq:
+	case t.channelForRequest(reqCh, req) <- mreq:
 		select {
 		case mres := <-resCh:
 			return mres.res, mres.err
@@ -102,8 +112,8 @@ func (t *RateLimit) CancelRequest(req *http.Request) {
 	}
 }
 
-func channelForRequest(pc *priorityChannel, r *http.Request) chan<- interface{} {
-	pr := strings.ToLower(r.Header.Get("X-Ai-Ratelimit-Priority"))
+func (t *RateLimit) channelForRequest(pc *priorityChannel, r *http.Request) chan<- interface{} {
+	pr := strings.ToLower(r.Header.Get(t.priorityHeader()))
 	switch pr {
 	case "high":
 		return pc.High
