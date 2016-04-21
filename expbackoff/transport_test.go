@@ -56,7 +56,7 @@ func TestExponentialBackoffTransport(t *testing.T) {
 			Min:       10 * time.Millisecond,
 			Max:       100 * time.Millisecond,
 			Factor:    1.9,
-			ErrorFunc: non200Error,
+			RetryFunc: non200Error,
 		}
 		c := &http.Client{Transport: eb}
 		res, err := c.Get(testServer.URL)
@@ -82,7 +82,7 @@ func TestExponentialBackoffTransport(t *testing.T) {
 			Min:       10 * time.Millisecond,
 			Max:       400 * time.Millisecond,
 			Factor:    1.9,
-			ErrorFunc: non200Error,
+			RetryFunc: non200Error,
 		}
 		c := &http.Client{Transport: eb}
 
@@ -120,7 +120,7 @@ func TestExponentialBackoffTransport(t *testing.T) {
 			Min:       1 * time.Millisecond,
 			Max:       3 * time.Millisecond,
 			Factor:    1.9,
-			ErrorFunc: non200Error,
+			RetryFunc: non200Error,
 		}
 		c := &http.Client{Transport: eb}
 
