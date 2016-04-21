@@ -1,0 +1,130 @@
+package limit
+
+import (
+	"errors"
+	"net/http"
+	"strings"
+	"sync"
+)
+
+type httpResponseResult struct {
+	res *http.Response
+	err error
+}
+
+type requestPayload struct {
+	responder func() (*http.Response, error)
+	resCh     chan *httpResponseResult
+}
+
+type channelStarter func(chan struct{}) *priorityChannel
+
+// RateLimit is an implementation of the RoundTripper
+// that limits a quantity of requests in the groups
+type RateLimit struct {
+	Transport      http.RoundTripper
+	GroupKeyFunc   func(r *http.Request) string
+	channelStarter channelStarter
+	closeCh        chan struct{}
+	channelMap     map[string]*priorityChannel
+	ml             *sync.Mutex
+	initOnce       sync.Once
+}
+
+func (t *RateLimit) init() {
+	if t.closeCh == nil {
+		t.closeCh = make(chan struct{})
+	}
+	if t.ml == nil {
+		t.ml = new(sync.Mutex)
+	}
+	if t.channelMap == nil {
+		t.channelMap = map[string]*priorityChannel{}
+	}
+}
+
+func (t *RateLimit) waitCh(key string) *priorityChannel {
+	t.ml.Lock()
+	defer t.ml.Unlock()
+	ch, ok := t.channelMap[key]
+	if ok {
+		return ch
+	}
+	ch = t.channelStarter(t.closeCh)
+	t.channelMap[key] = ch
+	return ch
+}
+
+func (t *RateLimit) distKey(req *http.Request) string {
+	if t.GroupKeyFunc != nil {
+		return t.GroupKeyFunc(req)
+	}
+	return GroupKeyByHost(req)
+}
+
+// RoundTrip implements the RoundTripper interface.
+func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.initOnce.Do(t.init)
+
+	key := t.distKey(req)
+	if key == "" {
+		return t.transport().RoundTrip(req)
+	}
+
+	reqCh := t.waitCh(key)
+	resCh := make(chan *httpResponseResult)
+	mreq := requestPayload{
+		responder: func() (*http.Response, error) {
+			return t.transport().RoundTrip(req)
+		},
+		resCh: resCh,
+	}
+	select {
+	case channelForRequest(reqCh, req) <- mreq:
+		select {
+		case mres := <-resCh:
+			return mres.res, mres.err
+		case <-t.closeCh:
+			return nil, errors.New("request canceled")
+		}
+	case <-t.closeCh:
+		return nil, errors.New("request canceled")
+	}
+}
+
+// CancelRequest cancels an in-flight request by closing its connection.
+func (t *RateLimit) CancelRequest(req *http.Request) {
+	type canceller interface {
+		CancelRequest(*http.Request)
+	}
+	if c, ok := t.transport().(canceller); ok {
+		c.CancelRequest(req)
+	}
+}
+
+func channelForRequest(pc *priorityChannel, r *http.Request) chan<- interface{} {
+	pr := strings.ToLower(r.Header.Get("X-Ai-Ratelimit-Priority"))
+	switch pr {
+	case "high":
+		return pc.High
+	case "low":
+		return pc.Low
+	default:
+		return pc.Normal
+	}
+}
+
+func (t *RateLimit) transport() http.RoundTripper {
+	it := t.Transport
+	if it == nil {
+		return http.DefaultTransport
+	}
+	return it
+}
+
+// Close will destruct itself
+func (t *RateLimit) Close() {
+	if t.closeCh != nil {
+		close(t.closeCh)
+	}
+}
