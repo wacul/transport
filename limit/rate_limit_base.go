@@ -32,6 +32,12 @@ type RateLimit struct {
 	initOnce           sync.Once
 }
 
+// ConstantGroupKeyFunc restricts whole requests in RateLimit
+func ConstantGroupKeyFunc(r *http.Request) string {
+	return "__constant_group_key__"
+}
+
+// DefaultPriorityHeaderName is the default name of a header to specify the priority of the request
 const DefaultPriorityHeaderName = "X-Ratelimit-Priority"
 
 func (t *RateLimit) priorityHeader() string {
