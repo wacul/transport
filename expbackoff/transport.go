@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	"context"
 )
 
 // Transport is an implementation of the RoundTripper that retries a request
@@ -19,32 +21,22 @@ type Transport struct {
 	Factor    float64
 }
 
-func (e *Transport) base() http.RoundTripper {
-	if e.Transport == nil {
+func (t *Transport) base() http.RoundTripper {
+	if t.Transport == nil {
 		return http.DefaultTransport
 	}
-	return e.Transport
+	return t.Transport
 }
 
-func (e *Transport) shouldRetry(res *http.Response, err error) bool {
-	if e.RetryFunc == nil {
+func (t *Transport) shouldRetry(res *http.Response, err error) bool {
+	if t.RetryFunc == nil {
 		return err != nil
 	}
-	return e.RetryFunc(res, err)
-}
-
-// CancelRequest cancels an in-flight request by closing its connection.
-func (e *Transport) CancelRequest(req *http.Request) {
-	type canceller interface {
-		CancelRequest(*http.Request)
-	}
-	if c, ok := e.base().(canceller); ok {
-		c.CancelRequest(req)
-	}
+	return t.RetryFunc(res, err)
 }
 
 // RoundTrip implements the RoundTripper interface.
-func (e *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var reqBytes []byte
 	hasReqBody := req.Body != nil
 	if hasReqBody {
@@ -55,11 +47,11 @@ func (e *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	current := e.Min
+	current := t.Min
 	for {
 		// Copy the body for response readers.
 		req.Body = ioutil.NopCloser(bytes.NewBuffer(reqBytes))
-		res, err := e.base().RoundTrip(req)
+		res, err := t.base().RoundTrip(req)
 		var resBytes []byte
 
 		var retry bool
@@ -70,17 +62,21 @@ func (e *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 			resBytes = bs
 			res.Body = ioutil.NopCloser(bytes.NewBuffer(resBytes))
-			retry = e.shouldRetry(res, err)
+			retry = t.shouldRetry(res, err)
 			res.Body = ioutil.NopCloser(bytes.NewBuffer(resBytes))
 		} else {
-			retry = e.shouldRetry(res, err)
+			retry = t.shouldRetry(res, err)
 		}
 
-		if !retry || current >= e.Max {
+		if !retry || current >= t.Max {
 			return res, err
 		}
 
-		time.Sleep(current)
-		current = time.Duration(int64(float64(current) * e.Factor))
+		select {
+		case <-req.Context().Done():
+			return nil, context.Canceled
+		case <-time.After(current):
+		}
+		current = time.Duration(int64(float64(current) * t.Factor))
 	}
 }
