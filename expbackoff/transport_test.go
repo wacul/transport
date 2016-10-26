@@ -1,6 +1,7 @@
 package expbackoff
 
 import (
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -11,6 +12,10 @@ import (
 
 	"context"
 )
+
+func init() {
+	rand.Seed(42)
+}
 
 type backoffTestServer struct {
 	called       int
@@ -224,10 +229,11 @@ func TestTransportCancelWithCTXHTTP(t *testing.T) {
 	defer testServer.Close()
 
 	transport := &Transport{
-		Min:       50 * time.Millisecond,
-		Max:       800 * time.Millisecond,
-		Factor:    2,
-		RetryFunc: non200Error,
+		Min:             50 * time.Millisecond,
+		Max:             800 * time.Millisecond,
+		Factor:          2,
+		RetryFunc:       non200Error,
+		RandomizeFactor: 1.0,
 	}
 
 	client := &http.Client{Transport: transport}

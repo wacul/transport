@@ -2,19 +2,22 @@ package expbackoff
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"time"
-
-	"context"
 )
+
+const defaultRandomizeFactor = 0.1
 
 // Transport is an implementation of the RoundTripper that retries a request
 // with decreasing the rate on exponential backoff
 type Transport struct {
-	Transport http.RoundTripper
-	Min       time.Duration
-	Max       time.Duration
+	Transport       http.RoundTripper
+	Min             time.Duration
+	Max             time.Duration
+	RandomizeFactor float64
 
 	// RetryFunc check the response of the Transport and decide whether to retry.
 	RetryFunc func(*http.Response, error) bool
@@ -77,6 +80,21 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, context.Canceled
 		case <-time.After(current):
 		}
-		current = time.Duration(int64(float64(current) * t.Factor))
+		current = t.nextWait(current)
 	}
+}
+
+func (t *Transport) nextWait(current time.Duration) time.Duration {
+	r := 1.0
+	if t.RandomizeFactor > 0 {
+		f := t.RandomizeFactor
+		if f > 1 {
+			f = 1
+		}
+		if f == 0 {
+			f = defaultRandomizeFactor
+		}
+		r = (rand.Float64()-0.5)*2*f + 1
+	}
+	return time.Duration(int64(float64(current) * t.Factor * r))
 }
