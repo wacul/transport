@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-const defaultRandomizeFactor = 0.1
-
 // Transport is an implementation of the RoundTripper that retries a request
 // with decreasing the rate on exponential backoff
 type Transport struct {
@@ -90,9 +88,6 @@ func (t *Transport) nextWait(current time.Duration) time.Duration {
 		f := t.RandomizeFactor
 		if f > 1 {
 			f = 1
-		}
-		if f == 0 {
-			f = defaultRandomizeFactor
 		}
 		r = (rand.Float64()-0.5)*2*f + 1
 	}
