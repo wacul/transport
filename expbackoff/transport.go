@@ -46,6 +46,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
+		defer req.Body.Close()
 	}
 
 	current := t.Min

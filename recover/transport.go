@@ -2,7 +2,6 @@ package recover
 
 import (
 	"bytes"
-	"io"
 	"io/ioutil"
 	"net/http"
 )
@@ -53,24 +52,23 @@ func (f *Transport) useSpare(res *http.Response, err error) bool {
 
 // RoundTrip implements the RoundTripper interface.
 func (f *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	var rb bytes.Buffer
-	saved := req.Body
-	if saved != nil {
-		io.Copy(&rb, req.Body)
-	}
-	defer func() {
-		req.Body = saved
-	}()
-	if saved != nil {
-		req.Body = ioutil.NopCloser(&rb)
+	var rb []byte
+	hasBody := req.Body != nil
+	if hasBody {
+		_rb, err := ioutil.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		rb = _rb
+		req.Body.Close()
+		req.Body = ioutil.NopCloser(bytes.NewBuffer(rb))
 	}
 
 	res, err := f.base().RoundTrip(req)
 	if f.useSpare(res, err) {
-		if saved != nil {
-			req.Body = ioutil.NopCloser(&rb)
+		if hasBody {
+			req.Body = ioutil.NopCloser(bytes.NewBuffer(rb))
 		}
-
 		return f.spare().RoundTrip(req)
 	}
 	return res, err
