@@ -46,26 +46,33 @@ func NewMaxConcurrentTransport(concurrent int) *RateLimit {
 
 func getConcurrentStarter(num int) channelStarter {
 	return func(closeCh chan struct{}) *priorityChannel {
+		block := make(chan struct{}, num)
 		pc := initPriorityChannel(closeCh)
-		for i := 0; i < num; i++ {
-			go func() {
-				for {
+		go func() {
+			for {
+				select {
+				case <-closeCh:
+					return
+				case iReq := <-pc.Out:
 					select {
 					case <-closeCh:
 						return
-					case iReq := <-pc.Out:
-						req := iReq.(requestPayload)
-						res := &httpResponseResult{}
-						res.res, res.err = req.responder()
-						select {
-						case <-closeCh:
-							return
-						case req.resCh <- res:
-						}
+					case block <- struct{}{}:
+						go func() {
+							req := iReq.(requestPayload)
+							res := &httpResponseResult{}
+							res.res, res.err = req.responder()
+							select {
+							case <-closeCh:
+								return
+							case req.resCh <- res:
+								<-block
+							}
+						}()
 					}
 				}
-			}()
-		}
+			}
+		}()
 		return pc
 	}
 }
