@@ -45,7 +45,7 @@ func NewMaxConcurrentTransport(concurrent int) *RateLimit {
 }
 
 func getConcurrentStarter(num int) channelStarter {
-	return func(closeCh chan struct{}, _expireCh chan struct{}) *priorityChannel {
+	return func(closeCh chan struct{}, _expireCh chan<- struct{}) *priorityChannel {
 		block := make(chan struct{}, num)
 		pc := initPriorityChannel(closeCh)
 		go func() {

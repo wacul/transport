@@ -17,7 +17,7 @@ type requestPayload struct {
 	resCh     chan *httpResponseResult
 }
 
-type channelStarter func(chan struct{}, chan struct{}) *priorityChannel
+type channelStarter func(chan struct{}, chan<- struct{}) *priorityChannel
 
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups

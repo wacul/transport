@@ -49,7 +49,7 @@ func NewIntervalTransport(interval time.Duration, expire *time.Duration) *RateLi
 }
 
 func getIntervalStarter(interval time.Duration, expire *time.Duration) channelStarter {
-	return func(closeCh chan struct{}, expireCh chan struct{}) *priorityChannel {
+	return func(closeCh chan struct{}, expireCh chan<- struct{}) *priorityChannel {
 		pc := initPriorityChannel(closeCh)
 		tick := time.Tick(interval)
 
