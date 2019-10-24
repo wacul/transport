@@ -9,6 +9,7 @@ import (
 // that cooperate with the each of themselves to limit intervals of the requests
 type IntervalTransportFactory struct {
 	Interval   time.Duration
+	Expire     *time.Duration
 	closeCh    chan struct{}
 	channelMap map[string]*priorityChannel
 	ml         *sync.Mutex
@@ -32,7 +33,7 @@ func (f *IntervalTransportFactory) init() {
 func (f *IntervalTransportFactory) NewTransport() *RateLimit {
 	f.initOnce.Do(f.init)
 	return &RateLimit{
-		channelStarter: getIntervalStarter(f.Interval),
+		channelStarter: getIntervalStarter(f.Interval, f.Expire),
 		closeCh:        f.closeCh,
 		channelMap:     f.channelMap,
 		ml:             f.ml,
@@ -41,14 +42,14 @@ func (f *IntervalTransportFactory) NewTransport() *RateLimit {
 
 // NewIntervalTransport generates the RoundTripper
 // that limits intervals of the requests in the groups
-func NewIntervalTransport(interval time.Duration) *RateLimit {
+func NewIntervalTransport(interval time.Duration, expire *time.Duration) *RateLimit {
 	return &RateLimit{
-		channelStarter: getIntervalStarter(interval),
+		channelStarter: getIntervalStarter(interval, expire),
 	}
 }
 
-func getIntervalStarter(interval time.Duration) channelStarter {
-	return func(closeCh chan struct{}) *priorityChannel {
+func getIntervalStarter(interval time.Duration, expire *time.Duration) channelStarter {
+	return func(closeCh chan struct{}, expireCh chan struct{}) *priorityChannel {
 		pc := initPriorityChannel(closeCh)
 		tick := time.Tick(interval)
 
@@ -72,6 +73,8 @@ func getIntervalStarter(interval time.Duration) channelStarter {
 							case req.resCh <- res:
 							}
 						}()
+					case <-after(expire):
+						expireCh <- struct{}{}
 					}
 				}
 			}
@@ -79,4 +82,11 @@ func getIntervalStarter(interval time.Duration) channelStarter {
 
 		return pc
 	}
+}
+
+func after(d *time.Duration) <-chan time.Time {
+	if d != nil {
+		return time.After(*d)
+	}
+	return make(<-chan time.Time)
 }

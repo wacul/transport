@@ -30,7 +30,8 @@ func TestInterval(t *testing.T) {
 
 	exInterval := 100 * time.Millisecond
 
-	transport := NewIntervalTransport(exInterval)
+	var expire *time.Duration
+	transport := NewIntervalTransport(exInterval, expire)
 	transport.GroupKeyFunc = GroupKeyByHost
 	defer transport.Close()
 
@@ -82,5 +83,53 @@ func TestIntervalFactory(t *testing.T) {
 
 	if it.minInterval < exInterval-(10*time.Millisecond) { // handler may delay
 		t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), it.minInterval.String())
+	}
+}
+
+func TestIntervalWithExpire(t *testing.T) {
+	it := &intervalTest{}
+	s := httptest.NewServer(it)
+	defer s.Close()
+
+	exInterval := 100 * time.Millisecond
+
+	expire := 10 * time.Millisecond
+	transport := NewIntervalTransport(exInterval, &expire)
+	transport.GroupKeyFunc = GroupKeyByHost
+	defer transport.Close()
+
+	testClient := &http.Client{
+		Transport: transport,
+	}
+
+	wg := sync.WaitGroup{}
+	numReq := 10
+	wg.Add(numReq)
+	for i := 0; i < numReq; i++ {
+		time.Sleep(20 * time.Millisecond)
+		go func() {
+			testClient.Get(s.URL)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	if it.minInterval < exInterval-(10*time.Millisecond) { // handler may delay
+		t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), it.minInterval.String())
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	{
+		wg := sync.WaitGroup{}
+		numReq := 10
+		wg.Add(numReq)
+		for i := 0; i < numReq; i++ {
+			go func() {
+				testClient.Get(s.URL)
+				wg.Done()
+			}()
+		}
+		wg.Wait()
 	}
 }

@@ -17,7 +17,7 @@ type requestPayload struct {
 	resCh     chan *httpResponseResult
 }
 
-type channelStarter func(chan struct{}) *priorityChannel
+type channelStarter func(chan struct{}, chan struct{}) *priorityChannel
 
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups
@@ -27,6 +27,7 @@ type RateLimit struct {
 	PriorityHeaderName string
 	channelStarter     channelStarter
 	closeCh            chan struct{}
+	expireCh           chan struct{}
 	channelMap         map[string]*priorityChannel
 	ml                 *sync.Mutex
 	initOnce           sync.Once
@@ -51,6 +52,9 @@ func (t *RateLimit) init() {
 	if t.closeCh == nil {
 		t.closeCh = make(chan struct{})
 	}
+	if t.expireCh == nil {
+		t.expireCh = make(chan struct{})
+	}
 	if t.ml == nil {
 		t.ml = new(sync.Mutex)
 	}
@@ -64,11 +68,26 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 	defer t.ml.Unlock()
 	ch, ok := t.channelMap[key]
 	if ok {
+		ch.add()
 		return ch
 	}
-	ch = t.channelStarter(t.closeCh)
+	ch = t.channelStarter(t.closeCh, t.expireCh)
 	t.channelMap[key] = ch
+	ch.add()
 	return ch
+}
+
+func (t *RateLimit) expire(ch *priorityChannel, key string) bool {
+	t.ml.Lock()
+	defer t.ml.Unlock()
+	if ch.using() {
+		return false
+	}
+	delete(t.channelMap, key)
+	ch.Close()
+	t.Close()
+	t.closeCh = make(chan struct{})
+	return true
 }
 
 func (t *RateLimit) distKey(req *http.Request) string {
@@ -88,6 +107,19 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	reqCh := t.waitCh(key)
+	go func() {
+		for {
+			select {
+			case <-t.closeCh:
+				return
+			case <-t.expireCh:
+			}
+			if t.expire(reqCh, key) {
+				break
+			}
+		}
+	}()
+
 	resCh := make(chan *httpResponseResult)
 	mreq := requestPayload{
 		responder: func() (*http.Response, error) {
@@ -99,11 +131,14 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 	case t.channelForRequest(reqCh, req) <- mreq:
 		select {
 		case mres := <-resCh:
+			reqCh.done()
 			return mres.res, mres.err
 		case <-t.closeCh:
+			reqCh.done()
 			return nil, errors.New("request canceled")
 		}
 	case <-t.closeCh:
+		reqCh.done()
 		return nil, errors.New("request canceled")
 	}
 }
