@@ -2,5 +2,9 @@ language: go
 go:
     - 1.12.x
 
+env:
+    global:
+        - GO111MODULE=on
+
 script:
     - go test -v -race $( go list -f="{{if or .TestGoFiles .XTestGoFiles }}{{.ImportPath}}{{end}}" ./...)
