@@ -2,14 +2,11 @@ package limit
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
-)
-
-import (
-	"net/http"
-	"net/http/httptest"
 )
 
 type concurrentTest struct {
