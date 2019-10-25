@@ -175,9 +175,4 @@ func (t *RateLimit) Close() {
 	if t.closeCh != nil {
 		close(t.closeCh)
 	}
-	t.ml.Lock()
-	defer t.ml.Unlock()
-	for _, ch := range t.channelMap {
-		ch.Close()
-	}
 }
