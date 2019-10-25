@@ -30,8 +30,7 @@ func TestInterval(t *testing.T) {
 
 	exInterval := 100 * time.Millisecond
 
-	var expire *time.Duration
-	transport := NewIntervalTransport(exInterval, expire)
+	transport := NewIntervalTransport(exInterval)
 	transport.GroupKeyFunc = GroupKeyByHost
 	defer transport.Close()
 
@@ -93,9 +92,10 @@ func TestIntervalWithExpire(t *testing.T) {
 
 	exInterval := 100 * time.Millisecond
 
-	expire := 10 * time.Millisecond
-	transport := NewIntervalTransport(exInterval, &expire)
+	transport := NewIntervalTransport(exInterval)
 	transport.GroupKeyFunc = GroupKeyByHost
+	expire := 10 * time.Millisecond
+	transport.Expire = &expire
 	defer transport.Close()
 
 	testClient := &http.Client{

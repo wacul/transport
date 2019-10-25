@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type httpResponseResult struct {
@@ -17,7 +18,7 @@ type requestPayload struct {
 	resCh     chan *httpResponseResult
 }
 
-type channelStarter func(chan struct{}, chan<- struct{}) *priorityChannel
+type channelStarter func(chan struct{}) *priorityChannel
 
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups
@@ -25,9 +26,9 @@ type RateLimit struct {
 	Transport          http.RoundTripper
 	GroupKeyFunc       func(r *http.Request) string
 	PriorityHeaderName string
+	Expire             *time.Duration
 	channelStarter     channelStarter
 	closeCh            chan struct{}
-	expireCh           chan struct{}
 	channelMap         map[string]*priorityChannel
 	ml                 *sync.Mutex
 	initOnce           sync.Once
@@ -52,9 +53,6 @@ func (t *RateLimit) init() {
 	if t.closeCh == nil {
 		t.closeCh = make(chan struct{})
 	}
-	if t.expireCh == nil {
-		t.expireCh = make(chan struct{})
-	}
 	if t.ml == nil {
 		t.ml = new(sync.Mutex)
 	}
@@ -71,9 +69,23 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 		ch.add()
 		return ch
 	}
-	ch = t.channelStarter(t.closeCh, t.expireCh)
+	ch = t.channelStarter(t.closeCh)
 	t.channelMap[key] = ch
 	ch.add()
+
+	go func() {
+		for {
+			select {
+			case <-t.closeCh:
+				return
+			case <-after(t.Expire):
+			}
+			if t.expire(ch, key) {
+				break
+			}
+		}
+	}()
+
 	return ch
 }
 
@@ -107,19 +119,6 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	reqCh := t.waitCh(key)
-	go func() {
-		for {
-			select {
-			case <-t.closeCh:
-				return
-			case <-t.expireCh:
-			}
-			if t.expire(reqCh, key) {
-				break
-			}
-		}
-	}()
-
 	resCh := make(chan *httpResponseResult)
 	mreq := requestPayload{
 		responder: func() (*http.Response, error) {
@@ -178,4 +177,11 @@ func (t *RateLimit) Close() {
 	if t.closeCh != nil {
 		close(t.closeCh)
 	}
+}
+
+func after(d *time.Duration) <-chan time.Time {
+	if d != nil {
+		return time.After(*d)
+	}
+	return make(<-chan time.Time)
 }
