@@ -96,7 +96,6 @@ func (t *RateLimit) expire(ch *priorityChannel, key string) bool {
 		return false
 	}
 	delete(t.channelMap, key)
-	ch.Close()
 	t.closeCh <- struct{}{}
 	return true
 }
