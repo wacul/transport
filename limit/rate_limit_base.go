@@ -23,15 +23,15 @@ type channelStarter func(chan struct{}) *priorityChannel
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups
 type RateLimit struct {
-	Transport          http.RoundTripper
-	GroupKeyFunc       func(r *http.Request) string
-	PriorityHeaderName string
-	Expire             *time.Duration
-	channelStarter     channelStarter
-	closeCh            chan struct{}
-	channelMap         map[string]*priorityChannel
-	ml                 *sync.Mutex
-	initOnce           sync.Once
+	Transport           http.RoundTripper
+	GroupKeyFunc        func(r *http.Request) string
+	PriorityHeaderName  string
+	ExpireCheckInterval *time.Duration
+	channelStarter      channelStarter
+	closeCh             chan struct{}
+	channelMap          map[string]*priorityChannel
+	ml                  *sync.Mutex
+	initOnce            sync.Once
 }
 
 // ConstantGroupKeyFunc restricts whole requests in RateLimit
@@ -72,24 +72,26 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 	ch = t.channelStarter(t.closeCh)
 	ch.add()
 	t.channelMap[key] = ch
+	if t.ExpireCheckInterval == nil {
+		return ch
+	}
 
 	go func() {
 		for {
 			select {
 			case <-t.closeCh:
 				return
-			case <-after(t.Expire):
+			case <-time.After(*t.ExpireCheckInterval):
 			}
-			if t.expire(ch, key) {
+			if t.tryExpire(ch, key) {
 				return
 			}
 		}
 	}()
-
 	return ch
 }
 
-func (t *RateLimit) expire(ch *priorityChannel, key string) bool {
+func (t *RateLimit) tryExpire(ch *priorityChannel, key string) bool {
 	t.ml.Lock()
 	defer t.ml.Unlock()
 	if ch.using() {
@@ -173,12 +175,4 @@ func (t *RateLimit) Close() {
 	if t.closeCh != nil {
 		close(t.closeCh)
 	}
-}
-
-func after(d *time.Duration) <-chan time.Time {
-	if d != nil {
-		return time.After(*d)
-	}
-	var ch <-chan time.Time
-	return ch
 }
