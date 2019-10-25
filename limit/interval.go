@@ -9,7 +9,6 @@ import (
 // that cooperate with the each of themselves to limit intervals of the requests
 type IntervalTransportFactory struct {
 	Interval   time.Duration
-	Expire     *time.Duration
 	closeCh    chan struct{}
 	channelMap map[string]*priorityChannel
 	ml         *sync.Mutex
@@ -33,7 +32,6 @@ func (f *IntervalTransportFactory) init() {
 func (f *IntervalTransportFactory) NewTransport() *RateLimit {
 	f.initOnce.Do(f.init)
 	return &RateLimit{
-		Expire:         f.Expire,
 		channelStarter: getIntervalStarter(f.Interval),
 		closeCh:        f.closeCh,
 		channelMap:     f.channelMap,
