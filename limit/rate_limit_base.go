@@ -70,8 +70,8 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 		return ch
 	}
 	ch = t.channelStarter(t.closeCh)
-	t.channelMap[key] = ch
 	ch.add()
+	t.channelMap[key] = ch
 
 	go func() {
 		for {
@@ -81,7 +81,7 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 			case <-after(t.Expire):
 			}
 			if t.expire(ch, key) {
-				break
+				return
 			}
 		}
 	}()
