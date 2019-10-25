@@ -18,7 +18,7 @@ type requestPayload struct {
 	resCh     chan *httpResponseResult
 }
 
-type channelStarter func(chan struct{}) *priorityChannel
+type channelStarter func() *priorityChannel
 
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups
@@ -69,7 +69,7 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 		ch.add()
 		return ch
 	}
-	ch = t.channelStarter(t.closeCh)
+	ch = t.channelStarter()
 	ch.add()
 	t.channelMap[key] = ch
 	if t.ExpireCheckInterval == nil {
@@ -79,7 +79,7 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 	go func() {
 		for {
 			select {
-			case <-t.closeCh:
+			case <-ch.closeCh:
 				return
 			case <-time.After(*t.ExpireCheckInterval):
 			}
@@ -98,7 +98,7 @@ func (t *RateLimit) tryExpire(ch *priorityChannel, key string) bool {
 		return false
 	}
 	delete(t.channelMap, key)
-	t.closeCh <- struct{}{}
+	ch.Close()
 	return true
 }
 
@@ -174,5 +174,10 @@ func (t *RateLimit) transport() http.RoundTripper {
 func (t *RateLimit) Close() {
 	if t.closeCh != nil {
 		close(t.closeCh)
+	}
+	t.ml.Lock()
+	defer t.ml.Unlock()
+	for _, ch := range t.channelMap {
+		ch.Close()
 	}
 }
