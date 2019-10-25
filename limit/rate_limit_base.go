@@ -97,8 +97,7 @@ func (t *RateLimit) expire(ch *priorityChannel, key string) bool {
 	}
 	delete(t.channelMap, key)
 	ch.Close()
-	t.Close()
-	t.closeCh = make(chan struct{})
+	t.closeCh <- struct{}{}
 	return true
 }
 
@@ -119,6 +118,7 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	reqCh := t.waitCh(key)
+	defer reqCh.done()
 	resCh := make(chan *httpResponseResult)
 	mreq := requestPayload{
 		responder: func() (*http.Response, error) {
@@ -130,14 +130,11 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 	case t.channelForRequest(reqCh, req) <- mreq:
 		select {
 		case mres := <-resCh:
-			reqCh.done()
 			return mres.res, mres.err
 		case <-t.closeCh:
-			reqCh.done()
 			return nil, errors.New("request canceled")
 		}
 	case <-t.closeCh:
-		reqCh.done()
 		return nil, errors.New("request canceled")
 	}
 }
@@ -183,5 +180,6 @@ func after(d *time.Duration) <-chan time.Time {
 	if d != nil {
 		return time.After(*d)
 	}
-	return make(<-chan time.Time)
+	var ch <-chan time.Time
+	return ch
 }
