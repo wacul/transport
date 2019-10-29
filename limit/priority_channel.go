@@ -35,18 +35,21 @@ func (pc *priorityChannel) Close() {
 	close(pc.closeCh)
 }
 
+// increment the reference count like sync.WaitGroup
 func (pc *priorityChannel) add() {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	pc.refCount++
 }
 
+// decrement the reference count like sync.WaitGroup
 func (pc *priorityChannel) done() {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	pc.refCount--
 }
 
+// if true, this cannot stop safely.
 func (pc *priorityChannel) using() bool {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()

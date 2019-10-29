@@ -26,7 +26,7 @@ type RateLimit struct {
 	Transport           http.RoundTripper
 	GroupKeyFunc        func(r *http.Request) string
 	PriorityHeaderName  string
-	ExpireCheckInterval *time.Duration
+	ExpireCheckInterval *time.Duration // if nil, the goroutine will increase for each group key endlessly. if not nil, checked whether it is referenced periodically.
 	channelStarter      channelStarter
 	closeCh             chan struct{}
 	channelMap          map[string]*priorityChannel
@@ -76,6 +76,7 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 		return ch
 	}
 
+	// try to expire priorityChannel passively
 	go func() {
 		for {
 			select {
@@ -91,6 +92,7 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 	return ch
 }
 
+// try to expire priorityChannel related the key.
 func (t *RateLimit) tryExpire(ch *priorityChannel, key string) bool {
 	t.ml.Lock()
 	defer t.ml.Unlock()
