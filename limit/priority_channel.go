@@ -13,7 +13,7 @@ type priorityChannel struct {
 	closeCh chan struct{}
 
 	refCount uint
-	mu       *sync.Mutex
+	mu       sync.Mutex
 }
 
 // initPriorityChannel will create the priorityChannel and initialize it
@@ -24,7 +24,6 @@ func initPriorityChannel() *priorityChannel {
 	pc.Normal = make(chan interface{})
 	pc.Low = make(chan interface{})
 	pc.closeCh = make(chan struct{})
-	pc.mu = new(sync.Mutex)
 
 	pc.start()
 	return &pc
