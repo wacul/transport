@@ -93,28 +93,28 @@ func groupKeyByHeader(r *http.Request) string {
 	return r.Header.Get(groupKey)
 }
 
-type intervalMultiTest struct {
+type fakeCounterHandler struct {
 	lastRequested map[string]time.Time
 	intervals     map[string][]time.Duration
 	l             sync.Mutex
 }
 
-func (it *intervalMultiTest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (handler *fakeCounterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rt := time.Now()
 
-	it.l.Lock()
+	handler.l.Lock()
 	key := r.Header.Get(groupKey)
-	it.intervals[key] = append(it.intervals[key], rt.Sub(it.lastRequested[key]))
-	it.lastRequested[key] = rt
-	it.l.Unlock()
+	handler.intervals[key] = append(handler.intervals[key], rt.Sub(handler.lastRequested[key]))
+	handler.lastRequested[key] = rt
+	handler.l.Unlock()
 }
 
 func TestIntervalWithExpire(t *testing.T) {
-	it := &intervalMultiTest{
+	handler := &fakeCounterHandler{
 		lastRequested: make(map[string]time.Time),
 		intervals:     make(map[string][]time.Duration),
 	}
-	s := httptest.NewServer(it)
+	s := httptest.NewServer(handler)
 	defer s.Close()
 
 	exInterval := 100 * time.Millisecond
@@ -172,7 +172,7 @@ func TestIntervalWithExpire(t *testing.T) {
 	// assert all request intervals
 	assertInterval := func(key string) {
 		limit := exInterval - (10 * time.Millisecond) // handler may delay
-		for _, interval := range it.intervals[key] {
+		for _, interval := range handler.intervals[key] {
 			if interval < limit {
 				t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), interval.String())
 			}
