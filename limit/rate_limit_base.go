@@ -96,7 +96,7 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 func (t *RateLimit) tryExpire(ch *priorityChannel, key string) bool {
 	t.ml.Lock()
 	defer t.ml.Unlock()
-	if ch.using() {
+	if ch.hasConsumer() {
 		return false
 	}
 	delete(t.channelMap, key)

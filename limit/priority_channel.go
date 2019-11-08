@@ -49,7 +49,7 @@ func (pc *priorityChannel) done() {
 }
 
 // if true, this cannot stop safely.
-func (pc *priorityChannel) using() bool {
+func (pc *priorityChannel) hasConsumer() bool {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	return pc.refCount != 0
