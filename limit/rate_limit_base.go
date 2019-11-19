@@ -32,6 +32,9 @@ type RateLimit struct {
 	channelMap          map[string]*priorityChannel
 	ml                  *sync.Mutex
 	initOnce            sync.Once
+
+	// for testing
+	onChannelFinished func(key string)
 }
 
 // ConstantGroupKeyFunc restricts whole requests in RateLimit
@@ -101,6 +104,9 @@ func (t *RateLimit) tryExpire(ch *priorityChannel, key string) bool {
 	}
 	delete(t.channelMap, key)
 	ch.Close()
+	if t.onChannelFinished != nil {
+		t.onChannelFinished(key)
+	}
 	return true
 }
 
