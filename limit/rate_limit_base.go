@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type httpResponseResult struct {
@@ -17,19 +18,23 @@ type requestPayload struct {
 	resCh     chan *httpResponseResult
 }
 
-type channelStarter func(chan struct{}) *priorityChannel
+type channelStarter func() *priorityChannel
 
 // RateLimit is an implementation of the RoundTripper
 // that limits a quantity of requests in the groups
 type RateLimit struct {
-	Transport          http.RoundTripper
-	GroupKeyFunc       func(r *http.Request) string
-	PriorityHeaderName string
-	channelStarter     channelStarter
-	closeCh            chan struct{}
-	channelMap         map[string]*priorityChannel
-	ml                 *sync.Mutex
-	initOnce           sync.Once
+	Transport           http.RoundTripper
+	GroupKeyFunc        func(r *http.Request) string
+	PriorityHeaderName  string
+	ExpireCheckInterval *time.Duration // if nil, the goroutine will increase for each group key endlessly. if not nil, checked whether it is referenced periodically.
+	channelStarter      channelStarter
+	closeCh             chan struct{}
+	channelMap          map[string]*priorityChannel
+	ml                  *sync.Mutex
+	initOnce            sync.Once
+
+	// for testing
+	onChannelFinished func(key string)
 }
 
 // ConstantGroupKeyFunc restricts whole requests in RateLimit
@@ -64,11 +69,45 @@ func (t *RateLimit) waitCh(key string) *priorityChannel {
 	defer t.ml.Unlock()
 	ch, ok := t.channelMap[key]
 	if ok {
+		ch.add()
 		return ch
 	}
-	ch = t.channelStarter(t.closeCh)
+	ch = t.channelStarter()
+	ch.add()
 	t.channelMap[key] = ch
+	if t.ExpireCheckInterval == nil {
+		return ch
+	}
+
+	// try to expire priorityChannel passively
+	go func() {
+		for {
+			select {
+			case <-ch.closeCh:
+				return
+			case <-time.After(*t.ExpireCheckInterval):
+			}
+			if t.tryExpire(ch, key) {
+				return
+			}
+		}
+	}()
 	return ch
+}
+
+// try to expire priorityChannel related the key.
+func (t *RateLimit) tryExpire(ch *priorityChannel, key string) bool {
+	t.ml.Lock()
+	defer t.ml.Unlock()
+	if ch.hasConsumer() {
+		return false
+	}
+	delete(t.channelMap, key)
+	ch.Close()
+	if t.onChannelFinished != nil {
+		t.onChannelFinished(key)
+	}
+	return true
 }
 
 func (t *RateLimit) distKey(req *http.Request) string {
@@ -88,6 +127,7 @@ func (t *RateLimit) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	reqCh := t.waitCh(key)
+	defer reqCh.done()
 	resCh := make(chan *httpResponseResult)
 	mreq := requestPayload{
 		responder: func() (*http.Response, error) {

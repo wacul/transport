@@ -48,18 +48,18 @@ func NewIntervalTransport(interval time.Duration) *RateLimit {
 }
 
 func getIntervalStarter(interval time.Duration) channelStarter {
-	return func(closeCh chan struct{}) *priorityChannel {
-		pc := initPriorityChannel(closeCh)
+	return func() *priorityChannel {
+		pc := initPriorityChannel()
 		tick := time.Tick(interval)
 
 		go func() {
 			for {
 				select {
-				case <-closeCh:
+				case <-pc.closeCh:
 					return
 				case <-tick:
 					select {
-					case <-closeCh:
+					case <-pc.closeCh:
 						return
 					case iReq := <-pc.Out:
 						go func() {
@@ -67,7 +67,7 @@ func getIntervalStarter(interval time.Duration) channelStarter {
 							res := &httpResponseResult{}
 							res.res, res.err = req.responder()
 							select {
-							case <-closeCh:
+							case <-pc.closeCh:
 								return
 							case req.resCh <- res:
 							}
