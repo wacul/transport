@@ -12,22 +12,24 @@ import (
 
 type intervalTest struct {
 	lastRequested time.Time
-	minInterval   time.Duration
+	intervals     []time.Duration
 	l             sync.Mutex
 }
 
-func (it *intervalTest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (handler *intervalTest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rt := time.Now()
 
-	it.l.Lock()
-	it.minInterval = rt.Sub(it.lastRequested)
-	it.lastRequested = rt
-	it.l.Unlock()
+	handler.l.Lock()
+	handler.intervals = append(handler.intervals, rt.Sub(handler.lastRequested))
+	handler.lastRequested = rt
+	handler.l.Unlock()
 }
 
-func TestInterval(t *testing.T) {
-	it := &intervalTest{}
-	s := httptest.NewServer(it)
+func TestIntervalWithOneGroupKey(t *testing.T) {
+	handler := &intervalTest{
+		lastRequested: time.Now(),
+	}
+	s := httptest.NewServer(handler)
 	defer s.Close()
 
 	exInterval := 100 * time.Millisecond
@@ -51,14 +53,16 @@ func TestInterval(t *testing.T) {
 	}
 	wg.Wait()
 
-	if it.minInterval < exInterval-(10*time.Millisecond) { // handler may delay
-		t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), it.minInterval.String())
+	for _, interval := range handler.intervals {
+		if interval < exInterval-(10*time.Millisecond) { // handler may delay
+			t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), interval.String())
+		}
 	}
 }
 
 func TestIntervalFactory(t *testing.T) {
-	it := &intervalTest{}
-	s := httptest.NewServer(it)
+	handler := &intervalTest{}
+	s := httptest.NewServer(handler)
 	defer s.Close()
 	exInterval := 100 * time.Millisecond
 	factory := IntervalTransportFactory{
@@ -82,8 +86,10 @@ func TestIntervalFactory(t *testing.T) {
 	}
 	wg.Wait()
 
-	if it.minInterval < exInterval-(10*time.Millisecond) { // handler may delay
-		t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), it.minInterval.String())
+	for _, interval := range handler.intervals {
+		if interval < exInterval-(10*time.Millisecond) { // handler may delay
+			t.Errorf("min request interval to server must grater than %s actual %s", exInterval.String(), interval.String())
+		}
 	}
 }
 
